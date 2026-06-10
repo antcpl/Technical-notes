@@ -59,6 +59,7 @@ In my case, for the moment, I only used Z3 to reproduce some crypto/obfuscation 
 - ``simplify()`` : formula/expression simplifier function
 - ``push()`` or ``pop()`` : allows to add or remove constraint from the constraint stack. (Z3 is based on a stack implementation, this is a subject I will have to cover)
 - ``Implies()`` : Boolean logic operator used to create a bi-implication equivalent to == but used on boolean variables 
+- ``sort()`` : each Z3 object has this method, it allows to retrieve and print the type of the selected object in the Z3 environment. 
 
 #### Machine arithmetic theory :   
 As exposed earlier Z3 and SMT in general use theory to resolve the problem provided. One important theory is the machine arithmetic theory. Machine arithmetic differs from the classic mathematical arithmetic. In that way, Z3 provides an entire theory to replicate at best the machine arithmetic. This is the theory most used when performing reverse engineering as from the assembly/decompiled source code we try to reproduce the actual algorithm execution.   

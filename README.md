@@ -3,3 +3,4 @@ This repo is here to gather all my technical notes. These are meant only to be u
 
 ## Table of content : 
 - [SMT/SAT Solver Notes](./Solver.md)
+- [Binary Analysis](./Binary_Analysis.md)

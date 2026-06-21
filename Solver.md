@@ -107,6 +107,27 @@ ext_test = SignExt(16, test)
 ```  
 We now have a 32 bits signe extended test version. 
 
+## Methodology to use z3 in the context of crypto implementation breaking : 
+Most CTFs necessitates the usage of z3 to solve some custom crypto implementation. The methodology described here is mine and is the result of many hours of struggling. Even if it has been designed in the CTF context, I assume it is general enough to be used in others. 
+
+### Step 1 : identify the variables of the problem : 
+- Algorithm to reproduce 
+- Operand types of the algo 
+- Operations used in the algo 
+- Inputs of the algo : symbolic variables to declare and non-symbolic variables  
+- Constraints to use to make the solver find solutions to the problem 
+
+### Step 2 : implement the script : 
+Nothing to be said here, the most important part is the next one. 
+
+### Step 3 : debug and techniques : 
+- Depending on the algorithm but sometimes, it could be interesting to isolate only one part of the entire execution to be sure of the correctness of the implementation. I mentionned sometimes because in some cases, this could be the opposite, isolate one part of the algo is not a good idea and will lead you into the wall. 
+- Double/Triple/Infinity check of the inputs used. It's very important to be sure that the inputs of the z3 script are the same as the original script. It could be interesting to retrieve the inputs directly from the original binary in execution to be entirely sure. 
+- Check the correctness of the reproduction implementation of the crypto elements. If the general logic is correct most of the time, in some cases, the programming language used could do some tricks on your operands you don't want to. Reimplementing the same crypto in a standalone script aside z3 and compare its output to the original one could be path to follow. 
+- Always double check the signedness of the operands and operators and use the correct operators in z3. Sometimes original program performs casts during the crypto process ex : extend 32 bits value to 64 bits. This should absolutely be reproduced in the z3 script. 
+- Do not hesitate to multiply the same task using different techniques to be sure of the result. For example, to get the inputs needed you may have to extract them from the original binary directly on the fly into the solver script but you can also extract them using a tool and place them into a file. Then check both results, they should match. 
+
+
 ## Interesting usages of Z3 : 
 
 [Breaking petya crypto using Z3](https://0xec.blogspot.com/2016/04/reversing-petya-ransomware-with.html)

@@ -42,7 +42,27 @@ All execution performed with angr is a representation of a simulated program sta
 - `` state = proj.factory.entry_state()`` : retrieve the SimState of the entry point of the program.   
 Composition of a SimState : program's memory, registers, filesystem data etc... Or any data that could be changed by the program execution.   
 - ``state.regs.rip`` : retrieve the rip value 
-- ``state.mem.[proj.entry].int.resolved`` : interpret the memory at the entry point as C int.   
+- ``state.mem.[proj.entry].int.resolved`` : interpret the memory at the entry point as C int.  
+
+#### State presets : 
+There are many state constructors available in the project. 
+- ``blank_state()`` : this will create a state with most of its data uninitialized. **This is where we can point that retrieving an unitialized data will return an unconstrained symbolic variable.** 
+- ``entry_state()`` : constructs  state ready to execute at the entry point of the binary. 
+- ``full_init_state()`` : constructs a state ready to be executed after all the required pre-initialization happened ie shared library loading etc... Once this done, it will jump to the binary entry point. 
+- ``call_state()`` : constructs a state ready to execute a given function. 
+
+Constructors arguments : 
+-  ``addr`` : indicates the exact address where the state should start. _available for all constructors_
+- ``env`` : when the executed state waits for a dictionary of environment variables. _entry\_state()_ and _full\_init\_state()_ only. 
+- ``args`` : when the states requires a list of arguments. By default, list is empty so args[0] doesn't exist, it should be provided every time needed. _entry\_state()_ and _full\_init\_state()_ only.   
+
+
+Both ``env`` and ``args`` can be setted as string or bitvectors and will be serialized into the state. 
+
+- ``argc`` : possible to initialize it as symbolic variable. _entry\_state()_ and _full\_init\_state()_ only. Be careful, you need to add a constraint to it when it's used as symbolic for it to not be larger than the parameters provided in the ``argv`` parameter. 
+- ``call_state(addr, arg1, arg2, ...)`` : special case : addr is the address of the target function. arg1, arg2 are the arguments of the function. It's possible to have memory allocated as well or indicate a calling convention check [here](https://docs.angr.io/en/latest/core-concepts/states.html) 
+
+
 
 angr only works with bitvectors in its core. Here are some tricks to convert python ints to bitvectors : 
 <details>
@@ -105,7 +125,7 @@ By default, all comparisons are unsigned as in z3.
 - ``test = 1 == 2 ; state.solver.is_true(test)`` : will return a boolean value that could be used in a comparison. 
 
 ## Constraints solving : 
-How to get evaluation of a symoblic expression. First get symbolic variables, add constraints to a state and retrieve evaluated value. 
+How to get evaluation of a symoblic expression. First get symbolic variables, add constraints to a state and retrieve an evaluated value. 
 ```python 
 state.solver.add(x>y)
 state.soler.add(y>2)
@@ -121,9 +141,10 @@ Variables are not tied to a state, they exist independently and can be used in o
 Simulation manager, basic execution and symoblic execution.  
 - ``state.step()`` : perform one step of symbolic execution and return an object called ``angr.engines.successors.SimSuccessors``   
 Symbolic execution in angr will produce many successors states. All of them can be classified and this is the main work in angr. the ``successors`` property return a list of "normal" successors states.  
-**Basic example :** ``if (x>4)`` and x is defined as a symbolic variable.   
+**Basic example :** ``if ( x > 4 )`` and x is defined as a symbolic variable.   
 In angr core the comparison will be performed and return an AST ``<Bool x_32_1 > 4>``.   
 From this, angr will create two different states, one with the valid comparison and the other one with invalid comparison.   
 To state one, the constraint ``x>4`` will be added. To state two, the constraint ``!(x>4)`` will be added.  
 
 This is where i realized what going from z3 to angr means. Angr works is entirely based on classifying states or find a way to discard the not interesting ones. The fauxware example available [here](https://docs.angr.io/en/latest/core-concepts/states.html#basic-execution) is the exact illustration of this. 
+

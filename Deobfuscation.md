@@ -228,4 +228,140 @@ while basic_block_worklist:
     if next_block.is_int() or next_block.is_loc():
         basic_block_worklist.append(next_block)
 ```  
-The logic is pretty simple, we perform execution block by block using the IR CFG that we created before starting from the entry block. The Symbolic Execution engine could return an integer, this represents the next block to be executed or a location from the LocationDB representing the same thing. In that case, we continue the execution. Otherwise, the execution is stopped and the SE state is dump in the terminal.   
+The logic is pretty simple, we perform execution block by block using the IR CFG that we created before starting from the entry block. The Symbolic Execution engine could return an integer, this represents the next block to be executed or a location from the LocationDB representing the same thing. In that case, we continue the execution. Otherwise, the execution is stopped and the SE state is dump in the terminal.     
+
+With a symbolic execution engine correctly initialized and a correct CFG, the symoblic execution can begin.  
+
+#### C. From symbolic execution to concolic execution : 
+
+The method presented here is rather concolic execution that symbolic execution alone. Indeed, we must constraint the symbolic execution engine using real values from the binary to execute correctly the VM from start to exit.   
+The first constraint is the VM bytecode. Already identified in the first phase, the initialization is the following one : 
+
+```python 
+# Comes from Tim Blazytko source code
+def constraint_memory(address, num_of_bytes):
+    """
+    Reads `num_of_bytes` from the binary at a given address
+    and builds symbolic formulas to pre-configure the symbolic
+    execution engine for concolinc execution.
+    """
+    global container
+    # read bytes from binary
+    byte_stream = container.bin_stream.getbytes(address, num_of_bytes)
+    # build symbolic memory address
+    # Needed an update and change this 32 bits
+    sym_address = ExprMem(ExprInt(address, 32), num_of_bytes * 8)
+    # build symbolic memory value
+    sym_value = ExprInt(int.from_bytes(
+        byte_stream, byteorder='little'), num_of_bytes * 8)
+
+    return sym_address, sym_value
+
+# constraint bytecode using identified memory range 
+sym_address, sym_value = constraint_memory(0x8049a9c, 0x8049ebb - 0x8049a9c)
+sb.symbols[sym_address] = sym_value
+
+```
+
+Once the bytecode constrained, there certainly are some registers or memory regions that requires initialization, you can proceed the same way.     
+Once the first static initialization phase performed, the second phase will start. The major advantage of this method and the algorithm presented previoulsy is that the symbolic execution engine will stop every time it encouters a unresolvable symbol. Every time the value of an element is unknown in its execution and the value is required to go further, the execution is stopped and the internal state of the engine is shown.   
+**There are two advantages in this :** 
+1. The engine identifies and provides you all the initialization constraints it requires to execute the VM. This facilitates and avoid a heavy RE work. 
+2. This transforms the symbolic execution into concolic execution. Each time the engine is stopped, our work is now to identify the constraint to resolve for the engine to go further in the execution. 
+
+Here is one example from a binary. During this phase, it is important to get the maximum information about the SE state as possible. In order to get this, the parameter ``step=True`` is important in the algorithm mentionned above : it will allow us to get the exact detail of the SE state at each executed IR instruction : 
+```python
+next_block = sb.run_block_at(ira_cfg, current_block, step=True)
+```
+
+Here is an example of a SE state dumped during this phase : 
+
+```python 
+current block: 0x8048436
+________________________________________________________________________________
+Instr MOV        ESI, 0x8049A95
+Assignblk:
+IRDst = loc_key_36
+________________________________________________________________________________
+ESI                = 0x8049A95
+IRDst              = 0x804843B
+________________________________________________________________________________
+next block: 0x804843B
+current block: 0x804843B
+Instr LODSD
+Assignblk:
+EAX = @32[ESI[0:32]]
+IRDst = df?(loc_key_83,loc_key_82)
+________________________________________________________________________________
+ESI                = 0x8049A95
+IRDst              = df?(loc_key_83,loc_key_82)
+EAX                = {@24[0x8049A95] 0 24, 0x41 24 32}
+________________________________________________________________________________
+next block: df?(loc_key_83,loc_key_82)                          <=== this requires a constraint
+ESI                = 0x8049A95
+IRDst              = df?(loc_key_83,loc_key_82)
+EAX                = {@24[0x8049A95] 0 24, 0x41 24 32}
+```
+At every instruction executed, the SE computes the following bloc in the IR CFG representation. In the last one, we can observe that the SE doesn't know where to drive the execution between two different blocks.    
+In that case, the df register in x86 assembly requires an initialization to continue the execution, we can initialize using the same method as the one presented with the bytecode above.     
+
+#### D. Debugging the follow_execution script : 
+In its release version, the Miasm's SE has a particular implementation of the function call. In my case, the VM dispatcher calls the decoder function and is part of the VM. In order to get the full execution, some modifications in the Miasm source code to modify its way to deal with function calls are required. 
+After some debug, I figured out the following setup : 
+1. Initialize the stack pointer pointing to the same address as the real one in our VM function, the value could be obtained by debugging the binary. 
+2. Add the side effect of the ESP decrementation when performing a call in the Miasm function handling function calls : 
+```python 
+call_assignblk = AssignBlock(
+            [
+                ExprAssign(self.sp, ExprOp('-', self.sp, ExprInt(4,32)))        <== added esp operation 
+            ],
+            instr
+        )
+```
+3. The push and pop procedures were already handled via the modifications I performed on the ASM CFG.    
+
+
+
+**Conclusion about SE from VM entry to exit :** the major goal of this part is to build a concolic execution by driving the SE. The major part of the work presented in this part was Miasm technical setup and some ABI implementation support in the SE but still it's interesting elements to understand symbolic execution better and I assume that identical problems would be encountered when performing the same task with other tools. 
+
+### 2. Build our own SE based VM disassembler : 
+Using the complete execution gained from the previous phase, our next goal is to build our own SE-based disassembler.   
+To do so, the first required step is to identify all the addresses in CFG of the first instruction of each VM handler. With this list, we can now perform small modifications of the algorithm presented above to hook execution of each VM handler at the first instruction : 
+
+```python
+
+def disassemble(sb, address):
+    """
+    Callback to dump individual VM handler information,
+    execution context etc.
+    """
+    # fetch concrete value of current virtual instruction pointer
+    vip = int(sb.symbols[ExprId("ESI", 32)])-4
+
+    # catch the individual handlers and print execution context
+    if int(address) == 0x8048462:
+        print(f"vip={vip:x} ; hdlr={address} ;  inc word 0x8049a8e")
+    elif int(address) == 0x804847a:
+        print(f"vip={vip:x} ; hdlr={address} ;  mov word 0x8049a8e")
+
+
+## Modifications proposed by Tim Blazytko
+while basic_block_worklist:
+    # get current block
+    current_block = basic_block_worklist.pop()
+
+    
+    # if current block is a VM handler, we call our disassembler hook 
+    if current_block.is_int() and int(current_block) in VM_HANDLERS:
+        disassemble(sb, current_block)
+
+    # symbolical execute block -> next_block: symbolic value/address to execute
+    next_block = sb.run_block_at(ira_cfg, current_block, step=False)
+
+
+    # is next block is integer or label, continue execution
+    if next_block.is_int() or next_block.is_loc():
+        basic_block_worklist.append(next_block)
+```
+The next step is now to exactly identify the actions performed by each VM handler and traduce this knowledge in the assembly of our choice. Using this, at each executed VM handler, we can have information about the actual handler's goal and rebuild the entire execution and the VM control flow. 
+
